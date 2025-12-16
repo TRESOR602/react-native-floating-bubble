@@ -1,172 +1,173 @@
-
 package com.pelumi_coder.floatingbubble;
 
-import com.facebook.react.bridge.ReactApplicationContext;
-import com.facebook.react.bridge.ReactContextBaseJavaModule;
-import com.facebook.react.bridge.ReactMethod;
-import com.facebook.react.bridge.Callback;
-import com.facebook.react.bridge.Promise;
-import com.facebook.react.bridge.Arguments;
-import com.facebook.react.bridge.WritableMap;
-import com.facebook.react.modules.core.DeviceEventManagerModule;
-
-import android.os.Bundle;
-import android.os.Build;
-import android.view.LayoutInflater;
-import android.view.View;
+import android.app.Activity;
 import android.content.Intent;
-import android.provider.Settings;
 import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
+import android.provider.Settings;
+import android.view.LayoutInflater;
+
 import androidx.annotation.NonNull;
 
-import com.txusballesteros.bubbles.BubbleLayout;
-import com.txusballesteros.bubbles.BubblesManager;
-import com.txusballesteros.bubbles.OnInitializedCallback;
+import com.facebook.react.bridge.*;
+import com.facebook.react.modules.core.DeviceEventManagerModule;
+import com.txusballesteros.bubbles.*;
 
 public class RNFloatingBubbleModule extends ReactContextBaseJavaModule {
 
   private BubblesManager bubblesManager;
-  private final ReactApplicationContext reactContext;
   private BubbleLayout bubbleView;
+  private final ReactApplicationContext reactContext;
 
   public RNFloatingBubbleModule(ReactApplicationContext reactContext) {
     super(reactContext);
     this.reactContext = reactContext;
-
-    // try {
-    //   initializeBubblesManager();
-    // } catch (Exception e) {
-
-    // }
   }
 
-  @ReactMethod
-  public void reopenApp(){
-    Intent launchIntent = reactContext.getPackageManager().getLaunchIntentForPackage(reactContext.getPackageName());
-    if (launchIntent != null) {
-      reactContext.startActivity(launchIntent);
-    }
-  }
-
+  @NonNull
   @Override
   public String getName() {
     return "RNFloatingBubble";
   }
 
-  @ReactMethod // Notates a method that should be exposed to React
-  public void showFloatingBubble(int x, int y, final Promise promise) {
-    try {
-      this.addNewBubble(x, y);
-      promise.resolve("");
-    } catch (Exception e) {
-      promise.reject("");
-    }
-  }  
+  // ---------- PUBLIC API ----------
 
-  @ReactMethod // Notates a method that should be exposed to React
+  @ReactMethod
+  public void initialize(final Promise promise) {
+    Activity activity = getCurrentActivity();
+
+    if (activity == null) {
+      promise.reject("NO_ACTIVITY", "Activity not ready");
+      return;
+    }
+
+    try {
+      initializeBubblesManager(activity);
+      promise.resolve(null);
+    } catch (Exception e) {
+      promise.reject("INIT_ERROR", e);
+    }
+  }
+
+  @ReactMethod
+  public void showFloatingBubble(int x, int y, final Promise promise) {
+    Activity activity = getCurrentActivity();
+
+    if (activity == null || bubblesManager == null) {
+      promise.reject("NOT_READY", "Activity or manager not ready");
+      return;
+    }
+
+    try {
+      addNewBubble(activity, x, y);
+      promise.resolve(null);
+    } catch (Exception e) {
+      promise.reject("SHOW_ERROR", e);
+    }
+  }
+
+  @ReactMethod
   public void hideFloatingBubble(final Promise promise) {
     try {
-      this.removeBubble();
-      promise.resolve("");
+      removeBubble();
+      promise.resolve(null);
     } catch (Exception e) {
-      promise.reject("");
+      promise.reject("HIDE_ERROR", e);
     }
-  }  
-  
-  @ReactMethod // Notates a method that should be exposed to React
+  }
+
+  @ReactMethod
   public void requestPermission(final Promise promise) {
-    try {
-      this.requestPermissionAction(promise);
-    } catch (Exception e) {
+    if (hasPermission()) {
+      promise.resolve(true);
+      return;
     }
-  }  
-  
-  @ReactMethod // Notates a method that should be exposed to React
+
+    Activity activity = getCurrentActivity();
+    if (activity == null) {
+      promise.reject("NO_ACTIVITY", "Activity not ready");
+      return;
+    }
+
+    Intent intent = new Intent(
+      Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+      Uri.parse("package:" + reactContext.getPackageName())
+    );
+    activity.startActivity(intent);
+    promise.resolve(false);
+  }
+
+  @ReactMethod
   public void checkPermission(final Promise promise) {
-    try {
-      promise.resolve(hasPermission());
-    } catch (Exception e) {
-      promise.reject("");
-    }
-  }  
-  
-  @ReactMethod // Notates a method that should be exposed to React
-  public void initialize(final Promise promise) {
-    try {
-      this.initializeBubblesManager();
-      promise.resolve("");
-    } catch (Exception e) {
-      promise.reject("");
-    }
-  }  
+    promise.resolve(hasPermission());
+  }
 
-  private void addNewBubble(int x, int y) {
-    this.removeBubble();
-    bubbleView = (BubbleLayout) LayoutInflater.from(reactContext).inflate(R.layout.bubble_layout, null);
-    bubbleView.setOnBubbleRemoveListener(new BubbleLayout.OnBubbleRemoveListener() {
-      @Override
-      public void onBubbleRemoved(BubbleLayout bubble) {
-        bubbleView = null;
-        sendEvent("floating-bubble-remove");
-      }
-    });
-    bubbleView.setOnBubbleClickListener(new BubbleLayout.OnBubbleClickListener() {
+  @ReactMethod
+  public void reopenApp() {
+    Intent launchIntent = reactContext
+      .getPackageManager()
+      .getLaunchIntentForPackage(reactContext.getPackageName());
 
-      @Override
-      public void onBubbleClick(BubbleLayout bubble) {
-        sendEvent("floating-bubble-press");
-      }
-    });
+    if (launchIntent != null) {
+      launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+      reactContext.startActivity(launchIntent);
+    }
+  }
+
+  // ---------- INTERNAL ----------
+
+  private void initializeBubblesManager(Activity activity) {
+    if (bubblesManager != null) return;
+
+    bubblesManager = new BubblesManager.Builder(activity)
+      .setTrashLayout(R.layout.bubble_trash_layout)
+      .setInitializationCallback(() -> {})
+      .build();
+
+    bubblesManager.initialize();
+  }
+
+  private void addNewBubble(Activity activity, int x, int y) {
+    removeBubble();
+
+    bubbleView = (BubbleLayout) LayoutInflater
+      .from(activity)
+      .inflate(R.layout.bubble_layout, null);
+
     bubbleView.setShouldStickToWall(true);
+
+    bubbleView.setOnBubbleRemoveListener(bubble -> {
+      bubbleView = null;
+      sendEvent("floating-bubble-remove");
+    });
+
+    bubbleView.setOnBubbleClickListener(bubble ->
+      sendEvent("floating-bubble-press")
+    );
+
     bubblesManager.addBubble(bubbleView, x, y);
   }
 
-  private boolean hasPermission(){
+  private void removeBubble() {
+    if (bubbleView != null && bubblesManager != null) {
+      try {
+        bubblesManager.removeBubble(bubbleView);
+        bubbleView = null;
+      } catch (Exception ignored) {}
+    }
+  }
+
+  private boolean hasPermission() {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
       return Settings.canDrawOverlays(reactContext);
     }
     return true;
   }
 
-  private void removeBubble() {
-    if(bubbleView != null){
-      try{
-        bubblesManager.removeBubble(bubbleView);
-      } catch(Exception e){
-
-      }
-    }
-  }
-
-
-  public void requestPermissionAction(final Promise promise) {
-    if (!hasPermission()) {
-      Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + reactContext.getPackageName()));
-      Bundle bundle = new Bundle();
-      reactContext.startActivityForResult(intent, 0, bundle);
-    } 
-    if (hasPermission()) {
-      promise.resolve("");
-    } else {
-      promise.reject("");
-    }
-  }
-
-  private void initializeBubblesManager() {
-    bubblesManager = new BubblesManager.Builder(reactContext).setTrashLayout(R.layout.bubble_trash_layout)
-        .setInitializationCallback(new OnInitializedCallback() {
-          @Override
-          public void onInitialized() {
-            // addNewBubble();
-          }
-        }).build();
-    bubblesManager.initialize();
-  }
-
   private void sendEvent(String eventName) {
-    WritableMap params = Arguments.createMap();
     reactContext
       .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
-      .emit(eventName, params);
+      .emit(eventName, null);
   }
 }
