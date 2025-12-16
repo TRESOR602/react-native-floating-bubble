@@ -14,7 +14,10 @@ import com.facebook.react.bridge.*;
 import com.facebook.react.modules.core.DeviceEventManagerModule;
 import com.txusballesteros.bubbles.*;
 
-public class RNFloatingBubbleModule extends ReactContextBaseJavaModule {
+private boolean isHostResumed = false;
+public class RNFloatingBubbleModule
+  extends ReactContextBaseJavaModule
+  implements LifecycleEventListener {
 
   private BubblesManager bubblesManager;
   private BubbleLayout bubbleView;
@@ -23,6 +26,7 @@ public class RNFloatingBubbleModule extends ReactContextBaseJavaModule {
   public RNFloatingBubbleModule(ReactApplicationContext reactContext) {
     super(reactContext);
     this.reactContext = reactContext;
+    reactContext.addLifecycleEventListener(this);
   }
 
   @NonNull
@@ -51,28 +55,33 @@ public class RNFloatingBubbleModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
-  public void showFloatingBubble(int x, int y, final Promise promise) {
-    Activity activity = getCurrentActivity();
+public void showFloatingBubble(int x, int y, final Promise promise) {
 
-    if (activity == null || bubblesManager == null) {
-      promise.reject("NOT_READY", "Activity or manager not ready");
-      return;
-    }
-
-    try {
-      addNewBubble(activity, x, y);
-      promise.resolve(null);
-    } catch (Exception e) {
-      promise.reject("SHOW_ERROR", e);
-    }
+  if (!isHostResumed) {
+    promise.reject("APP_NOT_ACTIVE", "App is not in foreground");
+    return;
   }
+
+  Activity activity = getCurrentActivity();
+  if (activity == null || bubblesManager == null) {
+    promise.reject("NOT_READY", "Activity or manager not ready");
+    return;
+  }
+
+  try {
+    addNewBubble(activity, x, y);
+    promise.resolve(null);
+  } catch (Exception e) {
+    promise.reject("SHOW_ERROR", e);
+  }
+}
 
   @ReactMethod
   public void hideFloatingBubble(final Promise promise) {
     try {
       removeBubble();
       promise.resolve(null);
-    } catch (Exception e) {
+    } catch (Exception e) {/home/tresor/react-native-floating-bubble/library/android/src/main/java/com/reactlibrary/RNFloatingBubbleModule.java
       promise.reject("HIDE_ERROR", e);
     }
   }
@@ -170,4 +179,22 @@ public class RNFloatingBubbleModule extends ReactContextBaseJavaModule {
       .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
       .emit(eventName, null);
   }
+
+  @Override
+  public void onHostResume() {
+    isHostResumed = true;
+  }
+
+  @Override
+  public void onHostPause() {
+    isHostResumed = false;
+    removeBubble(); // TRÈS IMPORTANT
+  }
+
+  @Override
+  public void onHostDestroy() {
+    isHostResumed = false;
+    removeBubble();
+  }
+
 }
