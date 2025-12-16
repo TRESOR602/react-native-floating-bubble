@@ -1,5 +1,5 @@
 
-package com.reactlibrary;
+package com.pelumi_coder.floatingbubble;
 
 import java.util.Arrays;
 import java.util.Collections;
