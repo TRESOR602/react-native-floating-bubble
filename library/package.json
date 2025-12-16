@@ -3,6 +3,7 @@
   "version": "1.0.9",
   "description": "A floating bubble component for React Native (compatible with 0.76+). Fork of hybriteq/react-native-floating-bubble",
   "main": "index.js",
+  "types": "index.d.ts",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
