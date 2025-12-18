@@ -4,7 +4,6 @@ import android.app.Activity;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
-import android.os.Bundle;
 import android.provider.Settings;
 import android.view.LayoutInflater;
 
@@ -14,14 +13,13 @@ import com.facebook.react.bridge.*;
 import com.facebook.react.modules.core.DeviceEventManagerModule;
 import com.txusballesteros.bubbles.*;
 
-private boolean isHostResumed = false;
-public class RNFloatingBubbleModule
-  extends ReactContextBaseJavaModule
+public class RNFloatingBubbleModule extends ReactContextBaseJavaModule
   implements LifecycleEventListener {
 
   private BubblesManager bubblesManager;
   private BubbleLayout bubbleView;
   private final ReactApplicationContext reactContext;
+  private boolean isHostResumed = false;
 
   public RNFloatingBubbleModule(ReactApplicationContext reactContext) {
     super(reactContext);
@@ -35,59 +33,71 @@ public class RNFloatingBubbleModule
     return "RNFloatingBubble";
   }
 
-  // ---------- PUBLIC API ----------
+  // ================= PUBLIC API =================
 
   @ReactMethod
-  public void initialize(final Promise promise) {
+  public void initialize(Promise promise) {
     Activity activity = getCurrentActivity();
-
     if (activity == null) {
       promise.reject("NO_ACTIVITY", "Activity not ready");
       return;
     }
 
-    try {
-      initializeBubblesManager(activity);
+    if (bubblesManager != null) {
       promise.resolve(null);
-    } catch (Exception e) {
-      promise.reject("INIT_ERROR", e);
+      return;
     }
-  }
 
-  @ReactMethod
-public void showFloatingBubble(int x, int y, final Promise promise) {
+    bubblesManager = new BubblesManager.Builder(activity)
+      .setTrashLayout(R.layout.bubble_trash_layout)
+      .setInitializationCallback(() -> {})
+      .build();
 
-  if (!isHostResumed) {
-    promise.reject("APP_NOT_ACTIVE", "App is not in foreground");
-    return;
-  }
-
-  Activity activity = getCurrentActivity();
-  if (activity == null || bubblesManager == null) {
-    promise.reject("NOT_READY", "Activity or manager not ready");
-    return;
-  }
-
-  try {
-    addNewBubble(activity, x, y);
+    bubblesManager.initialize();
     promise.resolve(null);
-  } catch (Exception e) {
-    promise.reject("SHOW_ERROR", e);
   }
-}
 
   @ReactMethod
-  public void hideFloatingBubble(final Promise promise) {
-    try {
-      removeBubble();
-      promise.resolve(null);
-    } catch (Exception e) {/home/tresor/react-native-floating-bubble/library/android/src/main/java/com/reactlibrary/RNFloatingBubbleModule.java
-      promise.reject("HIDE_ERROR", e);
+  public void showFloatingBubble(int x, int y, Promise promise) {
+    if (!isHostResumed) {
+      promise.reject("APP_NOT_FOREGROUND", "App is not in foreground");
+      return;
     }
+
+    Activity activity = getCurrentActivity();
+    if (activity == null || bubblesManager == null) {
+      promise.reject("NOT_READY", "Activity or manager not ready");
+      return;
+    }
+
+    removeBubble();
+
+    bubbleView = (BubbleLayout) LayoutInflater
+      .from(activity)
+      .inflate(R.layout.bubble_layout, null);
+
+    bubbleView.setShouldStickToWall(true);
+
+    bubbleView.setOnBubbleClickListener(bubble ->
+      sendEvent("floating-bubble-press")
+    );
+
+    bubbleView.setOnBubbleRemoveListener(bubble ->
+      sendEvent("floating-bubble-remove")
+    );
+
+    bubblesManager.addBubble(bubbleView, x, y);
+    promise.resolve(null);
   }
 
   @ReactMethod
-  public void requestPermission(final Promise promise) {
+  public void hideFloatingBubble(Promise promise) {
+    removeBubble();
+    promise.resolve(null);
+  }
+
+  @ReactMethod
+  public void requestPermission(Promise promise) {
     if (hasPermission()) {
       promise.resolve(true);
       return;
@@ -95,7 +105,7 @@ public void showFloatingBubble(int x, int y, final Promise promise) {
 
     Activity activity = getCurrentActivity();
     if (activity == null) {
-      promise.reject("NO_ACTIVITY", "Activity not ready");
+      promise.reject("NO_ACTIVITY");
       return;
     }
 
@@ -108,62 +118,37 @@ public void showFloatingBubble(int x, int y, final Promise promise) {
   }
 
   @ReactMethod
-  public void checkPermission(final Promise promise) {
+  public void checkPermission(Promise promise) {
     promise.resolve(hasPermission());
   }
 
-  @ReactMethod
-  public void reopenApp() {
-    Intent launchIntent = reactContext
-      .getPackageManager()
-      .getLaunchIntentForPackage(reactContext.getPackageName());
+  // ================= LIFECYCLE =================
 
-    if (launchIntent != null) {
-      launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-      reactContext.startActivity(launchIntent);
-    }
+  @Override
+  public void onHostResume() {
+    isHostResumed = true;
   }
 
-  // ---------- INTERNAL ----------
-
-  private void initializeBubblesManager(Activity activity) {
-    if (bubblesManager != null) return;
-
-    bubblesManager = new BubblesManager.Builder(activity)
-      .setTrashLayout(R.layout.bubble_trash_layout)
-      .setInitializationCallback(() -> {})
-      .build();
-
-    bubblesManager.initialize();
+  @Override
+  public void onHostPause() {
+    isHostResumed = false;
+    removeBubble(); // ⚠️ CRUCIAL
   }
 
-  private void addNewBubble(Activity activity, int x, int y) {
+  @Override
+  public void onHostDestroy() {
+    isHostResumed = false;
     removeBubble();
-
-    bubbleView = (BubbleLayout) LayoutInflater
-      .from(activity)
-      .inflate(R.layout.bubble_layout, null);
-
-    bubbleView.setShouldStickToWall(true);
-
-    bubbleView.setOnBubbleRemoveListener(bubble -> {
-      bubbleView = null;
-      sendEvent("floating-bubble-remove");
-    });
-
-    bubbleView.setOnBubbleClickListener(bubble ->
-      sendEvent("floating-bubble-press")
-    );
-
-    bubblesManager.addBubble(bubbleView, x, y);
   }
+
+  // ================= INTERNAL =================
 
   private void removeBubble() {
     if (bubbleView != null && bubblesManager != null) {
       try {
         bubblesManager.removeBubble(bubbleView);
-        bubbleView = null;
       } catch (Exception ignored) {}
+      bubbleView = null;
     }
   }
 
@@ -179,22 +164,4 @@ public void showFloatingBubble(int x, int y, final Promise promise) {
       .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
       .emit(eventName, null);
   }
-
-  @Override
-  public void onHostResume() {
-    isHostResumed = true;
-  }
-
-  @Override
-  public void onHostPause() {
-    isHostResumed = false;
-    removeBubble(); // TRÈS IMPORTANT
-  }
-
-  @Override
-  public void onHostDestroy() {
-    isHostResumed = false;
-    removeBubble();
-  }
-
 }
